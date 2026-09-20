@@ -55,45 +55,79 @@ local selfharm_pending_phrases = {
 
 local depression_stage_thresholds = {0.25, 0.35, 0.5}
 local depression_stage_thoughts = {
-	[0.25] = "You are feeling down.",
-	[0.35] = "You are feeling upset.",
-	[0.5] = "You are feeling depressed.",
+	[0.25] = {
+		{text = "You are feeling down."},
+	{text = "A heavy weight settles on your chest."},
+	{text = "Everything looks duller than it should."},
+	{text = "You feel tired for no reason."},
+	},
+	[0.35] = {
+		{text = "You are feeling upset."},
+	{text = "A quiet sadness creeps over you."},
+	{text = "Nothing feels worth the effort."},
+	{text = "You can feel yourself slipping."},
+	},
+	[0.5] = {
+		{text = "You are feeling depressed."},
+	{text = "A grey fog settles over everything."},
+	{text = "You feel hollow, like something is missing."},
+	{text = "Nothing seems to matter anymore."},
+	},
 }
 local depression_stage_cooldown = 30
 local depression_dark_threshold = 0.65
 local depression_dark_thought_min = 45
 local depression_dark_thought_max = 120
 local depression_dark_thoughts = {
-	"You wont make it far.",
-	"You wont succeed.",
-	"Find something sharp.",
-	"Have you lost hope?",
-	"Do you miss them?",
-	"You are nobody.",
-	"You are a waste of time.",
-	"You are worthless.",
-	"End it all.",
+	{text = "You wont make it far."},
+	{text = "You wont succeed."},
+	{text = "Find something sharp.", cut = true},
+	{text = "Have you lost hope?"},
+	{text = "Do you miss them?"},
+	{text = "You are nobody."},
+	{text = "You are a waste of time."},
+	{text = "You are worthless."},
+	{text = "End it all."},
+	{text = "You are a burden to everyone."},
+	{text = "Nobody would even notice."},
+	{text = "Nothing you do matters."},
+	{text = "You deserve every bit of this."},
+	{text = "The blade would be so easy.", cut = true},
 }
 
-local depression_notify_stage_thresholds = {0.35, 0.45, 0.55}
+local depression_notify_stage_thresholds = {0.35, 0.45, 0.55, 0.65}
 local depression_notify_stage_phrases = {
 	[0.35] = {
-		"I'm feeling down..",
-		"I'm feeling kinda down..",
-		"Dude... I'm bored..",
-		"Mmmh... I should get busy with something.",
+		{text = "I'm feeling down.."},
+		{text = "I'm feeling kinda down.."},
+		{text = "Dude... I'm bored.."},
+		{text = "Mmmh... I should get busy with something."},
+		{text = "This day just keeps dragging on.."},
+		{text = "I dont feel like doing anything today.."},
 	},
 	[0.45] = {
-		"I feel upset..",
-		"I really feel sad..",
-		"Does it get worse than this?",
-		"Staying strong... I hope.",
+		{text = "I feel upset.."},
+		{text = "I really feel sad.."},
+		{text = "Does it get worse than this?"},
+		{text = "Staying strong... I hope."},
+		{text = "Why does everything feel so heavy.."},
+		{text = "I just want this feeling to stop.."},
 	},
 	[0.55] = {
-		"Fuck my life.",
-		"I cant take this anymore.",
-		"I need something sharp.",
-		"Fuck everything.",
+		{text = "Fuck my life."},
+		{text = "I cant take this anymore."},
+		{text = "I need something sharp.", cut = true},
+		{text = "Fuck everything."},
+		{text = "I'm so tired of all this.."},
+		{text = "Everything is falling apart on me.."},
+	},
+	[0.65] = {
+		{text = "I dont see the point in any of this anymore.."},
+		{text = "Nobody would even notice if I was gone.."},
+		{text = "I'm so tired of fighting this.."},
+		{text = "Maybe it would just be easier this way.."},
+		{text = "The knife keeps calling me..", cut = true},
+		{text = "Just one cut and it all goes quiet..", cut = true},
 	},
 }
 
@@ -104,18 +138,14 @@ local depression_minigame_phrases = {
 	"KEEP GOING..  STEADY.. STEADY..",
 	"YES.. GO ON... FUCK... FUCK MY LIFE..",
 	"END IT ALREADY.. COME ON..",
+	"YES.. MORE.. DEEPER..",
+	"DONT YOU DARE STOP.. KEEP CUTTING..",
+	"IT HURTS SO GOOD.. KEEP GOING..",
+	"ALMOST.. FINISH IT.. COME ON..",
 }
 
 util.AddNetworkString("rem_selfharm_press")
 util.AddNetworkString("rem_selfharm_end")
-
-local function showDepressionThought(owner, text, id)
-	if owner:GetInfoNum("hg_newthoughts", 0) > 0 then
-		owner:Thought(text, 6, id, 0)
-	else
-		owner:Notify(text, 6, id, 0)
-	end
-end
 
 local function isSelfHarmWeapon(wep)
 	if not IsValid(wep) or not wep.Canselfharm then return false end
@@ -146,6 +176,25 @@ local function autoEquipSelfHarmWeapon(owner)
 	if owner.SetActiveWeapon then owner:SetActiveWeapon(found) end
 
 	return true
+end
+
+local function hasCutWeapon(owner)
+	return hasSelfHarmWeapon(owner) or IsValid(findInventorySelfHarmWeapon(owner))
+end
+
+local function pickPhrase(owner, pool)
+	local canCut = hasCutWeapon(owner)
+
+	local choices = {}
+	for _, phrase in ipairs(pool) do
+		if not phrase.cut or canCut then
+			choices[#choices + 1] = phrase.text
+		end
+	end
+
+	if #choices == 0 then return end
+
+	return choices[math.random(#choices)]
 end
 
 function hg.organism.StartSelfHarm(owner)
@@ -439,72 +488,75 @@ module[2] = function(owner, org, timeValue)
 
 	if owner:IsPlayer() then
 		local dep = org.depression or 0
-		local stage = org.depressionThoughtStage
 
-		if stage and dep < stage then
-			org.depressionThoughtStage = nil
-		end
+		if owner:GetInfoNum("hg_newthoughts", 0) > 0 then
+			local stage = org.depressionThoughtStage
 
-		if dep < depression_stage_thresholds[1] then
-			org.depressionThoughtStage = nil
-		elseif (org.depressionNextStageThought or 0) < CurTime() then
-			stage = org.depressionThoughtStage or 0
+			if stage and dep < stage then
+				org.depressionThoughtStage = nil
+			end
 
-			for i = #depression_stage_thresholds, 1, -1 do
-				local threshold = depression_stage_thresholds[i]
+			if dep < depression_stage_thresholds[1] then
+				org.depressionThoughtStage = nil
+			elseif (org.depressionNextStageThought or 0) < CurTime() then
+				stage = org.depressionThoughtStage or 0
 
-				if dep >= threshold then
-					if stage < threshold then
-						org.depressionThoughtStage = threshold
-						org.depressionNextStageThought = CurTime() + depression_stage_cooldown
-						showDepressionThought(owner, depression_stage_thoughts[threshold], "depression_stage_" .. threshold)
+				for i = #depression_stage_thresholds, 1, -1 do
+					local threshold = depression_stage_thresholds[i]
+
+					if dep >= threshold then
+						if stage < threshold then
+							org.depressionThoughtStage = threshold
+							org.depressionNextStageThought = CurTime() + depression_stage_cooldown
+							owner:Thought(pickPhrase(owner, depression_stage_thoughts[threshold]), 6, "depression_stage_" .. threshold, 0)
+						end
+
+						break
 					end
-
-					break
 				end
 			end
-		end
 
-		if dep > depression_dark_threshold then
-			if (org.depressionNextDarkThought or 0) < CurTime() then
-				org.depressionNextDarkThought = CurTime() + math.Rand(depression_dark_thought_min, depression_dark_thought_max)
-				showDepressionThought(owner, table.Random(depression_dark_thoughts), "depression_dark")
+			if dep > depression_dark_threshold then
+				if (org.depressionNextDarkThought or 0) < CurTime() then
+					org.depressionNextDarkThought = CurTime() + math.Rand(depression_dark_thought_min, depression_dark_thought_max)
+					owner:Thought(pickPhrase(owner, depression_dark_thoughts), 6, "depression_dark", 0)
+				end
+			else
+				org.depressionNextDarkThought = nil
 			end
 		else
-			org.depressionNextDarkThought = nil
-		end
+			local notifyStage = org.depressionNotifyStage
 
-		local notifyStage = org.depressionNotifyStage
+			if notifyStage and dep < notifyStage then
+				org.depressionNotifyStage = nil
+			end
 
-		if notifyStage and dep < notifyStage then
-			org.depressionNotifyStage = nil
-		end
+			if dep < depression_notify_stage_thresholds[1] then
+				org.depressionNotifyStage = nil
+			elseif (org.depressionNextNotifyThought or 0) < CurTime() then
+				notifyStage = org.depressionNotifyStage or 0
 
-		if dep < depression_notify_stage_thresholds[1] then
-			org.depressionNotifyStage = nil
-		elseif (org.depressionNextNotifyThought or 0) < CurTime() then
-			notifyStage = org.depressionNotifyStage or 0
+				for i = #depression_notify_stage_thresholds, 1, -1 do
+					local threshold = depression_notify_stage_thresholds[i]
 
-			for i = #depression_notify_stage_thresholds, 1, -1 do
-				local threshold = depression_notify_stage_thresholds[i]
+					if dep >= threshold then
+						if notifyStage < threshold then
+							org.depressionNotifyStage = threshold
+							org.depressionNextNotifyThought = CurTime() + depression_stage_cooldown
+							owner:Notify(pickPhrase(owner, depression_notify_stage_phrases[threshold]), 6, "depression_notify_stage_" .. threshold, 0)
+						end
 
-				if dep >= threshold then
-					if notifyStage < threshold then
-						org.depressionNotifyStage = threshold
-						org.depressionNextNotifyThought = CurTime() + depression_stage_cooldown
-						owner:Notify(table.Random(depression_notify_stage_phrases[threshold]), 6, "depression_notify_stage_" .. threshold, 0)
+						break
 					end
-
-					break
 				end
 			end
-		end
 
-		if (owner.selfharming or owner.suiciding or owner.remUrgeEnd) and (org.depressionNextMinigamePhrase or 0) < CurTime() then
-			org.depressionNextMinigamePhrase = CurTime() + math.Rand(depression_minigame_phrase_interval_min, depression_minigame_phrase_interval_max)
-			owner:Notify(table.Random(depression_minigame_phrases), 3, "depression_minigame", 0)
-		elseif not owner.selfharming and not owner.suiciding and not owner.remUrgeEnd then
-			org.depressionNextMinigamePhrase = nil
+			if (owner.selfharming or owner.suiciding or owner.remUrgeEnd) and (org.depressionNextMinigamePhrase or 0) < CurTime() then
+				org.depressionNextMinigamePhrase = CurTime() + math.Rand(depression_minigame_phrase_interval_min, depression_minigame_phrase_interval_max)
+				owner:Notify(depression_minigame_phrases[math.random(#depression_minigame_phrases)], 3, "depression_minigame", 0)
+			elseif not owner.selfharming and not owner.suiciding and not owner.remUrgeEnd then
+				org.depressionNextMinigamePhrase = nil
+			end
 		end
 	end
 
