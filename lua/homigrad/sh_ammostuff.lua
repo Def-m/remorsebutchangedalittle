@@ -3261,3 +3261,146 @@ if SERVER then
         drop_cooldown[pl] = nil
     end)
 end
+
+if SERVER then
+    local HGAmmo_Tracked = {}
+    local HGAmmo_NextSweep = 0
+    local HGAmmo_MergeDistSqr = 625
+    local HGAmmo_SweepInterval = 0.2
+    local HGAmmo_MergeCooldown = 0.2
+
+    local function HGAmmo_IsAmmo(ent)
+        if not IsValid(ent) then return false end
+        if not isstring(ent.AmmoType) then return false end
+        if not isnumber(ent.AmmoCount) then return false end
+        local class = ent:GetClass()
+        if class == "ammo_base" then return false end
+        if string.sub(class, 1, 9) ~= "ent_ammo_" then return false end
+        return true
+    end
+
+    local function HGAmmo_CanMerge(a, b)
+        if a == b then return false end
+        if not IsValid(a) or not IsValid(b) then return false end
+        if a.HGAmmo_Merging or b.HGAmmo_Merging then return false end
+        if not isstring(a.AmmoType) or not isstring(b.AmmoType) then return false end
+        if a.AmmoType ~= b.AmmoType then return false end
+        if a:GetClass() ~= b:GetClass() then return false end
+        if not isnumber(a.AmmoCount) or not isnumber(b.AmmoCount) then return false end
+        local now = CurTime()
+        if now < (a.HGAmmo_NextMerge or 0) then return false end
+        if now < (b.HGAmmo_NextMerge or 0) then return false end
+        return true
+    end
+
+    local function HGAmmo_DoMerge(survivor, target)
+        if not HGAmmo_CanMerge(survivor, target) then return end
+        survivor.HGAmmo_Merging = true
+        target.HGAmmo_Merging = true
+        survivor.AmmoCount = (survivor.AmmoCount or 0) + (target.AmmoCount or 0)
+        local physSurvivor = survivor:GetPhysicsObject()
+        local physTarget = target:GetPhysicsObject()
+        if IsValid(physSurvivor) and IsValid(physTarget) then
+            physSurvivor:SetMass(physSurvivor:GetMass() + physTarget:GetMass())
+            physSurvivor:Wake()
+        end
+        survivor:EmitSound("snd_jack_hmcd_ammobox.wav", 75, math.random(90, 110), 1, CHAN_ITEM)
+        survivor.HGAmmo_NextMerge = CurTime() + HGAmmo_MergeCooldown
+        target:Remove()
+        if IsValid(survivor) then
+            survivor.HGAmmo_Merging = false
+        end
+    end
+
+    local function HGAmmo_SetupMerge(ent)
+        if not HGAmmo_IsAmmo(ent) then return end
+        if ent.HGAmmo_MergeReady then
+            HGAmmo_Tracked[ent:EntIndex()] = ent
+            return
+        end
+        ent.HGAmmo_MergeReady = true
+        ent.HGAmmo_Merging = false
+        ent.HGAmmo_NextMerge = 0
+        HGAmmo_Tracked[ent:EntIndex()] = ent
+        local function onCollide(selfEnt, data)
+            local hit = data.HitEntity
+            if not IsValid(hit) then return end
+            if not isstring(hit.AmmoType) or not isnumber(hit.AmmoCount) then return end
+            if selfEnt:GetClass() ~= hit:GetClass() then return end
+            if selfEnt:EntIndex() > hit:EntIndex() then return end
+            HGAmmo_DoMerge(selfEnt, hit)
+        end
+        pcall(function()
+            ent:AddCallback("PhysicsCollide", onCollide)
+        end)
+        if ent.PhysicsCollide == nil then
+            ent.PhysicsCollide = function(selfEnt, data, physobj)
+                onCollide(selfEnt, data)
+            end
+        else
+            local oldCollide = ent.PhysicsCollide
+            ent.PhysicsCollide = function(selfEnt, data, physobj)
+                oldCollide(selfEnt, data, physobj)
+                onCollide(selfEnt, data)
+            end
+        end
+    end
+
+    hook.Add("ShouldCollide", "HGAmmo_MergeCollide", function(a, b)
+        if not IsValid(a) or not IsValid(b) then return end
+        if not isstring(a.AmmoType) or not isstring(b.AmmoType) then return end
+        if not isnumber(a.AmmoCount) or not isnumber(b.AmmoCount) then return end
+        if string.sub(a:GetClass(), 1, 9) ~= "ent_ammo_" then return end
+        if string.sub(b:GetClass(), 1, 9) ~= "ent_ammo_" then return end
+        return true
+    end)
+
+    hook.Add("Think", "HGAmmo_MergeSweep", function()
+        local now = CurTime()
+        if now < HGAmmo_NextSweep then return end
+        HGAmmo_NextSweep = now + HGAmmo_SweepInterval
+        local list = {}
+        for idx, e in pairs(HGAmmo_Tracked) do
+            if not IsValid(e) then
+                HGAmmo_Tracked[idx] = nil
+            elseif not isstring(e.AmmoType) or not isnumber(e.AmmoCount) then
+                HGAmmo_Tracked[idx] = nil
+            else
+                list[#list + 1] = e
+            end
+        end
+        local count = #list
+        if count < 2 then return end
+        for i = 1, count - 1 do
+            local a = list[i]
+            if IsValid(a) and not a.HGAmmo_Merging then
+                local aPos = a:GetPos()
+                local aIndex = a:EntIndex()
+                for j = i + 1, count do
+                    local b = list[j]
+                    if IsValid(b) and not b.HGAmmo_Merging then
+                        if a:GetClass() == b:GetClass() and a.AmmoType == b.AmmoType then
+                            if aPos:DistToSqr(b:GetPos()) <= HGAmmo_MergeDistSqr then
+                                if aIndex < b:EntIndex() then
+                                    HGAmmo_DoMerge(a, b)
+                                else
+                                    HGAmmo_DoMerge(b, a)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+
+    hook.Add("OnEntityCreated", "HGAmmo_MergeSetup", function(ent)
+        timer.Simple(0, function()
+            HGAmmo_SetupMerge(ent)
+        end)
+    end)
+
+    for _, ent in ipairs(ents.GetAll()) do
+        HGAmmo_SetupMerge(ent)
+    end
+end

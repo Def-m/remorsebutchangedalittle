@@ -176,8 +176,64 @@ function hg.CanEquipArmorPiece(ply, equipment)
 	return not isRestricted
 end
 
+local equipment_drop_cooldown = {}
+local max_equipment_drops_per_second = 10
+local max_equipment_net_violations = 5
+local equipment_violation_decay = 5
+local EQUIPMENT_NET_BAN_REASON = "Suspected SV crasher"
+
+local function equipment_net_ban( ply )
+    equipment_drop_cooldown[ply] = nil
+
+    if ulx and ulx.ban then
+        ulx.ban( NULL, ply, 0, EQUIPMENT_NET_BAN_REASON )
+    elseif ULib and ULib.ban then
+        ULib.ban( ply, 0, EQUIPMENT_NET_BAN_REASON )
+    else
+        ply:Kick( EQUIPMENT_NET_BAN_REASON )
+    end
+end
+
 net.Receive("hg_drop_equipment", function(len, ply)
+    if not IsValid(ply) or not istable(ply.organism) then return end
+
     local equipment = net.ReadString()
+
+    if not isstring(equipment) or equipment == "" then return end
+
+    local now = CurTime()
+    local state = equipment_drop_cooldown[ply]
+
+    if not state or now - state.last > equipment_violation_decay then
+        state = { drops = {}, violations = 0, last = now }
+        equipment_drop_cooldown[ply] = state
+    end
+
+    state.last = now
+
+    local last_drops = state.drops
+
+    for i = #last_drops, 1, -1 do
+        if now - last_drops[i] > 1 then
+            table.remove(last_drops, i)
+        end
+    end
+
+    if #last_drops >= max_equipment_drops_per_second then
+        state.violations = state.violations + 1
+
+        if state.violations >= max_equipment_net_violations then
+            equipment_net_ban( ply )
+
+            return
+        end
+
+        ply:ChatPrint("Stop spamming equipment drops!")
+
+        return
+    end
+
+    last_drops[#last_drops + 1] = now
 
     if equipment == "hg_flashlight" then
         ply:ConCommand("hg_dropflashlight")
@@ -193,7 +249,13 @@ net.Receive("hg_drop_equipment", function(len, ply)
 
     if not ply.organism.canmove then return end
 
+    if not istable(ply.armors) then return end
+
     hg.DropArmor(ply, equipment)
+end)
+
+hook.Add("PlayerDisconnected", "drop_equipment_cleanup", function(pl)
+    equipment_drop_cooldown[pl] = nil
 end)
 
 function hg.AddArmor(ply, equipment, ent)
@@ -344,21 +406,24 @@ function hg.DropArmorForce(ent, equipment, pos, ang, vel, brokenMul)
 end
 
 function hg.DropArmor(ply, equipment)
-    if not table.HasValue(ply.armors, equipment) then return false end
+    if not IsValid(ply) or not istable(ply.armors) then return false end
+    if not isstring(equipment) or not table.HasValue(ply.armors, equipment) then return false end
     
     local placement
     for plc, tbl in pairs(hg.armor) do
         placement = tbl[equipment] and tbl[equipment][1] or placement
     end
     
-    if hg.armor[placement][equipment].nodrop then return false end
-
     if not placement then
         print("sh_equipment.lua: no such equipment as: " .. equipment)
         return false
     end
 
-    if IsValid(ply) and ply.DropCD and ply.DropCD > CurTime() then return false end
+    if not hg.armor[placement] or not hg.armor[placement][equipment] then return false end
+
+    if hg.armor[placement][equipment].nodrop then return false end
+
+    if ply.DropCD and ply.DropCD > CurTime() then return false end
 
     if hg.armor[placement][equipment] then
         ply:DoAnimationEvent((placement == "head" or placement == "ears" or placement == "face") and ACT_GMOD_GESTURE_MELEE_SHOVE_1HAND or ACT_GMOD_GESTURE_MELEE_SHOVE_2HAND)
