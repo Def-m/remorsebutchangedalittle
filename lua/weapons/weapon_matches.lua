@@ -149,9 +149,9 @@ function SWEP:PrimaryAttack()
         if not IsValid(phys) then if IsValid(ent) then ent:Remove() end return end
 
         local velocity = owner:GetAimVector()
-        velocity = velocity * 100
+        velocity = velocity * 400
         velocity = velocity + (VectorRand() * 10)
-        phys:ApplyForceCenter(velocity)
+        phys:SetVelocity(velocity)
     end
 
     self:TakePrimaryAmmo(1)

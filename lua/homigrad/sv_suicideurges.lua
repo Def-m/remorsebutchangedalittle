@@ -52,7 +52,17 @@ local function doUrgeCut(ply)
 		return
 	end
 
-	if IsValid(wep) and ishgweapon(wep) and not (wep.ismelee2 or wep.Base == "weapon_melee") and wep:Clip1() > 0 then
+	if IsValid(wep) and ishgweapon(wep) and not (wep.ismelee2 or wep.Base == "weapon_melee") then
+		if wep:Clip1() <= 0 then
+			if wep.PrimaryShootEmpty then
+				wep:PrimaryShootEmpty()
+			elseif wep.Primary and wep.Primary.SoundEmpty then
+				ply:EmitSound(wep.Primary.SoundEmpty, 75)
+			end
+
+			return
+		end
+
 		local oldStart = ply.startsuicide
 		ply.startsuicide = CurTime() - 2
 		ply.suiciding = true
@@ -101,12 +111,17 @@ local function endUrge(ply)
 	if not IsValid(ply) or not ply:IsPlayer() then return end
 
 	local resisted = (ply.remUrgePresses or 0) >= urge_presses_needed
+	local manual = ply.remUrgeManual
 
 	ply.remUrgeEnd = nil
+	ply.remUrgeManual = nil
 	ply.remUrgePresses = 0
-	ply.remUrgeCooldown = CurTime() + math.Rand(15, 25)
 	ply:SetNWFloat("rem_urges_end", 0)
 	ply.suiciding = false
+
+	if not manual then
+		ply.remUrgeCooldown = CurTime() + math.Rand(15, 25)
+	end
 
 	net.Start("rem_urges_end")
 	net.Send(ply)
@@ -114,7 +129,10 @@ local function endUrge(ply)
 	local org = ply.organism
 	if org then
 		org.depression = math.max((org.depression or 0) - 0.2, 0)
-		org.selfharmNextRoll = math.max(org.selfharmNextRoll or 0, ply.remUrgeCooldown)
+
+		if not manual then
+			org.selfharmNextRoll = math.max(org.selfharmNextRoll or 0, ply.remUrgeCooldown)
+		end
 	end
 
 	if not resisted and ply:Alive() then
@@ -122,15 +140,20 @@ local function endUrge(ply)
 	end
 end
 
-local function startUrge(ply)
+local function startUrge(ply, manual)
 	if not IsValid(ply) or not ply:IsPlayer() then return end
 	if not hasSuicideWeapon(ply) then return end
-	if ply.remUrgeEnd or ply.selfharming then return end
-	if (ply.remUrgeCooldown or 0) > CurTime() then return end
+	if ply.remUrgeEnd then return end
+	if not manual and (ply.remUrgeCooldown or 0) > CurTime() then return end
+
+	if ply.selfharming then
+		hg.organism.EndSelfHarm(ply)
+	end
 
 	autoEquipSuicideWeapon(ply)
 
 	ply.suiciding = true
+	ply.remUrgeManual = manual or nil
 	ply.remUrgePresses = 0
 	ply.remUrgeEnd = CurTime() + urge_duration
 	ply:SetNWFloat("rem_urges_end", ply.remUrgeEnd)
@@ -150,6 +173,7 @@ timer.Create("rem_suicideurges_roll", 1, 0, function()
 	for _, ply in ipairs(player.GetAll()) do
 		local org = ply.organism
 		if not org or not org.alive or org.heartstop or org.otrub then continue end
+		if hg.organism.IsMentalDisabled and hg.organism.IsMentalDisabled() then continue end
 		if ply.remUrgeEnd then continue end
 		if (ply.remUrgeCooldown or 0) > now then continue end
 		if ply.suiciding or ply.selfharming then continue end
@@ -179,6 +203,8 @@ net.Receive("rem_urges_press", function(_, ply)
 end)
 
 hook.Add("PlayerDeath", "REM_UrgesCleanup", function(ply)
+	ply.remUrgeManual = nil
+
 	if not ply.remUrgeEnd then return end
 
 	timer.Remove("rem_urges_end_" .. ply:EntIndex())

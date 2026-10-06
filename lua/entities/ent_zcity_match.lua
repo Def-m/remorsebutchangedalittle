@@ -57,7 +57,7 @@ function ENT:Initialize()
             for _,v in ipairs(hg.gasolinePath) do
                 if v[1]:Distance(pos) > 30 or v[2] ~= false then continue end
                 v[2] = CurTime()
-                v[3] = owner
+                v[3] = ent1.debil
             end
             if IsValid(data.HitEntity) and hg.drums[data.HitEntity:EntIndex()] then
                 local drum = hg.drums[data.HitEntity:EntIndex()]

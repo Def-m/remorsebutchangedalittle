@@ -10,12 +10,12 @@ local depression_pain_gain = 0.02
 local depression_fear_threshold = 3
 local depression_fear_gain = 0.015
 local depression_blood_threshold = 3500
-local depression_blood_gain = 0.01
-local depression_otrub_gain = 0.005
+local depression_blood_gain = 0.005
+local depression_blood_cap = 0.15
 local depression_adrenaline_suppress_start = 0.5
 local depression_adrenaline_suppress_min = 0.1
 local depression_bleedrate_threshold = 5
-local depression_bleedrate_gain = 0.03
+local depression_bleedrate_gain = 0.015
 local depression_bleedrate_maxmul = 4
 local depression_o2_threshold = 15
 local depression_o2_gain = 0.02
@@ -266,6 +266,7 @@ end
 module[1] = function(org)
 	org.depression = 0
 	org.depressionadd = 0
+	org.depressionBlood = 0
 	org.depressionThoughtStage = nil
 	org.depressionNextStageThought = nil
 	org.depressionNextDarkThought = nil
@@ -404,12 +405,32 @@ local function rollSelfHarm(owner, org)
 end
 
 module[2] = function(owner, org, timeValue)
+	if hg.organism.IsMentalDisabled and hg.organism.IsMentalDisabled() then
+		org.depression = 0
+		org.depressionadd = 0
+		org.depressionBlood = 0
+
+		if owner.selfharming then
+			hg.organism.EndSelfHarm(owner)
+		end
+
+		return
+	end
+
 	if owner.selfharming and (not org.alive or org.heartstop) then
 		hg.organism.EndSelfHarm(owner)
 	end
 
 	if not org.alive then return end
 	if org.heartstop then return end
+
+	if org.otrub then
+		if owner.selfharming then
+			hg.organism.EndSelfHarm(owner)
+		end
+
+		return
+	end
 
 	local add = 0
 
@@ -423,15 +444,27 @@ module[2] = function(owner, org, timeValue)
 		add = add + depression_fear_gain * timeValue
 	end
 
+	local bloodAdd = 0
+
 	local blood = org.blood or 5000
 	if blood < depression_blood_threshold then
-		add = add + depression_blood_gain * timeValue
+		bloodAdd = bloodAdd + depression_blood_gain * timeValue
 	end
 
 	local bleedrate = org.bleed or 0
 	if bleedrate > depression_bleedrate_threshold then
-		add = add + depression_bleedrate_gain * min(bleedrate / depression_bleedrate_threshold, depression_bleedrate_maxmul) * timeValue
+		bloodAdd = bloodAdd + depression_bleedrate_gain * min(bleedrate / depression_bleedrate_threshold, depression_bleedrate_maxmul) * timeValue
 	end
+
+	local bloodAllowed = depression_blood_cap - (org.depressionBlood or 0)
+	if bloodAllowed <= 0 then
+		bloodAdd = 0
+	else
+		bloodAdd = min(bloodAdd, bloodAllowed)
+		org.depressionBlood = (org.depressionBlood or 0) + bloodAdd
+	end
+
+	add = add + bloodAdd
 
 	local o2 = org.o2 and org.o2[1] or 30
 	if o2 < depression_o2_threshold then
@@ -454,10 +487,6 @@ module[2] = function(owner, org, timeValue)
 		add = add + depression_amputation_gain * timeValue
 	end
 
-	if org.otrub then
-		add = add + depression_otrub_gain * timeValue
-	end
-
 	if (org.depressionadd or 0) > 0 then
 		local applied = min(org.depressionadd, timeValue / 5)
 		org.depressionadd = max(org.depressionadd - applied, 0)
@@ -472,7 +501,7 @@ module[2] = function(owner, org, timeValue)
 	org.depression = Clamp((org.depression or 0) + add, 0, depression_max)
 
 	local drainRate = timeValue / depression_drain_time
-	if pain < 30 and fear < 2 and blood > 4000 and not org.otrub then
+	if pain < 30 and fear < 2 and blood > 4000 then
 		drainRate = drainRate * (depression_drain_time / depression_drain_boost_time)
 	end
 
@@ -485,6 +514,7 @@ module[2] = function(owner, org, timeValue)
 	end
 
 	org.depression = max((org.depression or 0) - drainRate, 0)
+	org.depressionBlood = max((org.depressionBlood or 0) - drainRate, 0)
 
 	if owner:IsPlayer() then
 		local dep = org.depression or 0
