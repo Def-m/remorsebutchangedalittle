@@ -261,6 +261,9 @@ end)
 function hg.AddArmor(ply, equipment, ent)
     if not IsValid(ply) then return end
 
+    ply.armors = ply.armors or {}
+    local isPly = ply:IsPlayer()
+
 	if not hg.CanEquipArmorPiece(ply, equipment) then
 		if ply:IsPlayer() then
 			--ply:ChatPrint("huy")
@@ -294,24 +297,41 @@ function hg.AddArmor(ply, equipment, ent)
     if hg.armor[placement][equipment].whitelistClasses and !hg.armor[placement][equipment].whitelistClasses[ply.PlayerClassName] then return false end
 
     for plc, arm in pairs(ply.armors) do
-        //if not hg.armor[plc] or not hg.armor[plc][arm] or not hg.armor[plc][arm].restricted then continue end
+        if not hg.armor[plc] or not hg.armor[plc][arm] then continue end
 
-        if hg.armor[plc][arm].restricted and table.HasValue(hg.armor[plc][arm].restricted, placement) then
-            if not hg.DropArmor(ply, ply.armors[plc]) then return false end
-        end
-        
-        if hg.armor[placement][equipment].restricted and table.HasValue(hg.armor[placement][equipment].restricted, plc) then
-            if not hg.DropArmor(ply, ply.armors[plc]) then return false end
+        local oldRestricted = hg.armor[plc][arm].restricted
+        local newRestricted = hg.armor[placement][equipment].restricted
+        local conflict = oldRestricted and table.HasValue(oldRestricted, placement) or newRestricted and table.HasValue(newRestricted, plc)
+
+        if conflict then
+            if isPly then
+                if not hg.DropArmor(ply, ply.armors[plc]) then return false end
+            else
+                local old = ply.armors[plc]
+                ply.armors[plc] = nil
+                if old ~= nil then
+                    if ply.armors_shots then ply.armors_shots[old] = nil end
+                    if ply.armors_broken then ply.armors_broken[old] = nil end
+                    if ply.armors_broken_mul then ply.armors_broken_mul[old] = nil end
+                end
+            end
         end
     end
 
-    if ply.armors[placement] and ply:IsPlayer() then
-		local currentArmorData = hg.armor[placement] and hg.armor[placement][ply.armors[placement]]
-		
-        if not hg.DropArmor(ply, ply.armors[placement]) then return false end
+    if ply.armors[placement] then
+        if isPly then
+            local currentArmorData = hg.armor[placement] and hg.armor[placement][ply.armors[placement]]
+
+            if not hg.DropArmor(ply, ply.armors[placement]) then return false end
+        else
+            local old = ply.armors[placement]
+            if ply.armors_shots then ply.armors_shots[old] = nil end
+            if ply.armors_broken then ply.armors_broken[old] = nil end
+            if ply.armors_broken_mul then ply.armors_broken_mul[old] = nil end
+        end
     end
-    
-    if hg.armor[placement][equipment].AfterPickup then
+
+    if isPly and hg.armor[placement][equipment].AfterPickup then
         hg.armor[placement][equipment].AfterPickup(ply)
     end
 
@@ -348,6 +368,7 @@ function hg.AddArmor(ply, equipment, ent)
 end
 
 function hg.DropArmorForce(ent, equipment, pos, ang, vel, brokenMul)
+    if not IsValid(ent) or not istable(ent.armors) then return false end
     if not table.HasValue(ent.armors, equipment) then return false end
     local placement
     for plc, tbl in pairs(hg.armor) do
@@ -423,11 +444,20 @@ function hg.DropArmor(ply, equipment)
 
     if hg.armor[placement][equipment].nodrop then return false end
 
+    if not ply:IsPlayer() then
+        local dropEnt = hg.DropArmorForce(ply, equipment)
+        return dropEnt ~= nil and dropEnt ~= false and IsValid(dropEnt)
+    end
+
     if ply.DropCD and ply.DropCD > CurTime() then return false end
 
     if hg.armor[placement][equipment] then
-        ply:DoAnimationEvent((placement == "head" or placement == "ears" or placement == "face") and ACT_GMOD_GESTURE_MELEE_SHOVE_1HAND or ACT_GMOD_GESTURE_MELEE_SHOVE_2HAND)
-	    ply:ViewPunch(Angle(1,-2,1))
+        if ply.DoAnimationEvent then
+            ply:DoAnimationEvent((placement == "head" or placement == "ears" or placement == "face") and ACT_GMOD_GESTURE_MELEE_SHOVE_1HAND or ACT_GMOD_GESTURE_MELEE_SHOVE_2HAND)
+        end
+        if ply.ViewPunch then
+            ply:ViewPunch(Angle(1,-2,1))
+        end
         ply.DropCD = CurTime() + 0.35
         --timer.Simple(0.3,function()
         if not IsValid(ply) then return end
