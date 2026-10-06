@@ -496,7 +496,7 @@ CalcView = function(ply, origin, angles, fov, znear, zfar)
 
 	view.znear = 1 -- 3
 	view.zfar = zfar
-	view.fov = math.Clamp(hg_fov:GetFloat(),75,100) + fova[1] + lerpfovadd + lerpfovadd2 - depFovAdd
+	view.fov = math.Clamp(hg_fov:GetFloat(),75,120) + fova[1] + lerpfovadd + lerpfovadd2 - depFovAdd
 	view.drawviewer = true--not hullcheck.Hit
 	view.origin = origin
 	view.angles = angles
