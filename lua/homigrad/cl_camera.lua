@@ -368,7 +368,12 @@ CalcView = function(ply, origin, angles, fov, znear, zfar)
 				--lply:SetEyeAngles(ply:EyeAngles())
 			end
 		else
-			return hook.Run("HG_CalcView", lply, origin, angles, fov, znear, zfar)
+			local fova = {fov}
+			local result = hook.Run("HG_CalcView", lply, origin, angles, fova, znear, zfar)
+
+			if istable(result) then return result end
+
+			return {origin = origin, angles = angles, fov = fova[1], znear = znear, zfar = zfar, drawviewer = false}
 		end
 	end
 

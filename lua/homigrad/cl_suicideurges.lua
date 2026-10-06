@@ -37,6 +37,7 @@ net.Receive("rem_suicide_attempt", function()
 end)
 
 hook.Add("HG_CalcView", "REM_SuicideRefuseFov", function(ply, origin, angles, fova)
+	if not istable(fova) then return end
 	if refuseFov > 0.001 and ply ~= LocalPlayer() then return end
 
 	fova[1] = fova[1] - refuseFov * 18

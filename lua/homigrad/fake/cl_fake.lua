@@ -234,7 +234,12 @@ CalcView = function(ply, origin, angles, fov, znear, zfar)
 	end
 	
 	if not lply:Alive() and not follow then
-		return hook.Run("HG_CalcView", ply, origin, angles, fov, znear, zfar)
+		local fova = {fov}
+		local result = hook.Run("HG_CalcView", ply, origin, angles, fova, znear, zfar)
+
+		if istable(result) then return result end
+
+		return {origin = origin, angles = angles, fov = fova[1], znear = znear, zfar = zfar, drawviewer = false}
 	end
 
 	if LocalPlayer().lean and math.abs(LocalPlayer().lean) < 0.01 then
