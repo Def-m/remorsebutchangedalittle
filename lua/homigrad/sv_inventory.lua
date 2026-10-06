@@ -148,8 +148,10 @@ hook.Add("PlayerDropWeapon", "homigrad-inventory", function(ply)
     wep:SetCollisionGroup(COLLISION_GROUP_WORLD)
     ply:DropWeapon(wep, ply:EyePos(), vecZero)
     wep:SetPos(ply:EyePos())
-    ply.inventory.Weapons[wep:GetClass()] = nil
-    ply:SetNetVar("Inventory", ply.inventory)
+    if ply.inventory then
+        ply.inventory.Weapons[wep:GetClass()] = nil
+        ply:SetNetVar("Inventory", ply.inventory)
+    end
     ply:SetActiveWeapon(NULL)
 	if ply.organism and ishgweapon(wep) then ply.organism.postureGunfireWeapon = wep end
 
