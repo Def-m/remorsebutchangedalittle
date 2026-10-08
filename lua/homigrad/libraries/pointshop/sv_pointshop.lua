@@ -261,7 +261,8 @@ end
 
 local netHandlers = {
     ["BuyItem"] = function( ply, uid ) PLUGIN:NET_BuyItem( ply, uid ) end,
-    ["GetBuyedItems"] = function( ply ) PLUGIN:NET_GetBuyedItems( ply ) end
+    ["GetBuyedItems"] = function( ply ) PLUGIN:NET_GetBuyedItems( ply ) end,
+    ["SendPointShopVars"] = function( ply ) PLUGIN:NET_SendPointShopVars( ply ) end
 }
 
 net.Receive("hg_pointshop_net",function( _, ply )

@@ -148,8 +148,10 @@ hook.Add("PlayerDropWeapon", "homigrad-inventory", function(ply)
     wep:SetCollisionGroup(COLLISION_GROUP_WORLD)
     ply:DropWeapon(wep, ply:EyePos(), vecZero)
     wep:SetPos(ply:EyePos())
-    ply.inventory.Weapons[wep:GetClass()] = nil
-    ply:SetNetVar("Inventory", ply.inventory)
+    if ply.inventory then
+        ply.inventory.Weapons[wep:GetClass()] = nil
+        ply:SetNetVar("Inventory", ply.inventory)
+    end
     ply:SetActiveWeapon(NULL)
 	if ply.organism and ishgweapon(wep) then ply.organism.postureGunfireWeapon = wep end
 
@@ -409,14 +411,19 @@ net.Receive("ply_take_item", function(len, ply)
 
     if ent:GetPos():Distance(ply:GetPos()) > 125 then return end
     if not istable(ent.inventory) or not istable(ply.inventory) or not istable(ply.armors) or not istable(ent.armors) then return end
-    if not istable(tbl) or #tbl > 4 then return end
-    for k in pairs(tbl) do
-        if not isnumber(k) then return end
+
+    local args = {}
+    if istable(tbl) then
+        for i = 1, 4 do
+            local v = tbl[i]
+            if v == nil then break end
+            args[i] = v
+        end
     end
 
     if not (tblIndex == "Weapons" or tblIndex == "Ammo" or tblIndex == "Armor" or tblIndex == "Attachments") then return end
     local func = functions[tblIndex]
-    if func then func(ply, ent, thing, unpack(tbl)) end
+    if func then func(ply, ent, thing, unpack(args)) end
     ply:SetNetVar("Inventory", ply.inventory)
     ent:SetNetVar("Inventory", ent.inventory)
     ply:SyncArmor()
